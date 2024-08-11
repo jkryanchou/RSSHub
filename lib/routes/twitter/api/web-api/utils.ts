@@ -147,55 +147,81 @@ export const paginationTweets = async (endpoint: string, userId: number | undefi
     return entries1 || entries2;
 };
 
-export function gatherLegacyFromData(entries: any[], filterNested?: string[], userId?: number | string) {
-    const tweets: any[] = [];
-    const filteredEntries: any[] = [];
+export function gatherLegacyFromData(entries: any[], filterNested?: string[]) {
+    const tweets = [];
+    const filteredEntries = [];
     for (const entry of entries) {
         const entryId = entry.entryId;
         if (entryId) {
             if (entryId.startsWith('tweet-')) {
                 filteredEntries.push(entry);
-            } else if (entryId.startsWith('profile-grid-0-tweet-')) {
-                filteredEntries.push(entry);
             }
             if (filterNested && filterNested.some((f) => entryId.startsWith(f))) {
-                filteredEntries.push(...entry.content.items);
-            }
-        }
-    }
-    for (const entry of filteredEntries) {
-        if (entry.entryId) {
-            const content = entry.content || entry.item;
-            let tweet = content?.content?.tweetResult?.result || content?.itemContent?.tweet_results?.result;
-            if (tweet && tweet.tweet) {
-                tweet = tweet.tweet;
-            }
-            if (tweet) {
-                const retweet = tweet.legacy?.retweeted_status_result?.result;
-                for (const t of [tweet, retweet]) {
-                    if (!t?.legacy) {
-                        continue;
-                    }
-                    t.legacy.user = t.core?.user_result?.result?.legacy || t.core?.user_results?.result?.legacy;
-                    t.legacy.id_str = t.rest_id; // avoid falling back to conversation_id_str elsewhere
-                    const quote = t.quoted_status_result?.result?.tweet || t.quoted_status_result?.result;
-                    if (quote) {
-                        t.legacy.quoted_status = quote.legacy;
-                        t.legacy.quoted_status.user = quote.core.user_result?.result?.legacy || quote.core.user_results?.result?.legacy;
-                    }
-                }
-                const legacy = tweet.legacy;
-                if (legacy) {
-                    if (retweet) {
-                        legacy.retweeted_status = retweet.legacy;
-                    }
-                    if (userId === undefined || legacy.user_id_str === userId + '') {
-                        tweets.push(legacy);
-                    }
-                }
+                // 取最后一个作为 entry
+                // 在处理完整之后，把 items 当做 fulltext 进行处理
+                const lastTweet = entry.content.items.at(-1);
+                lastTweet.timeline = entry.content.items;
+                filteredEntries.push(lastTweet);
             }
         }
     }
 
+    // 处理 Tweet 和 Thread
+    for (const entry of filteredEntries) {
+        if (entry.entryId) {
+            const content = entry.content || entry.item;
+            let tweet = content?.itemContent?.tweet_results?.result;
+
+            if (tweet && tweet.tweet) {
+                tweet = tweet.tweet;
+            }
+
+            const legacy = handleTweet(tweet);
+
+            // Thread
+            if (entry.entryId.startsWith('profile-conversation-')) {
+                legacy.timeline = [];
+
+                for (const t of entry.timeline) {
+                    // Exclude last tweet
+                    if (t === entry.timeline.at(-1)) {
+                        continue;
+                    }
+
+                    const tweet = t.item.itemContent.tweet_results.result;
+                    const timeline_legacy = handleTweet(tweet);
+                    legacy.timeline.push(timeline_legacy);
+                }
+            }
+            tweets.push(legacy);
+        }
+    }
+
     return tweets;
+}
+
+function handleTweet(tweet) {
+    const retweet = tweet.legacy?.retweeted_status_result?.result;
+    for (const t of [tweet, retweet]) {
+        if (!t?.legacy) {
+            continue;
+        }
+
+        t.legacy.user = t.core.user_results.result.legacy;
+        const quote = t.quoted_status_result?.result;
+
+        if (quote && quote.legacy) {
+            t.legacy.quoted_status = quote.legacy;
+
+            t.legacy.quoted_status.user = quote.core ? quote.core.user_results.result.legacy : quote.tweet.core.user_results.result.legacy;
+        }
+    }
+
+    const legacy = tweet.legacy;
+    if (legacy) {
+        if (retweet) {
+            legacy.retweeted_status = retweet.legacy;
+        }
+        return legacy;
+    }
 }
