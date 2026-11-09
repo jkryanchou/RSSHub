@@ -20195,7 +20195,8 @@ export default {
       "/weekly": {
         "path": "/weekly",
         "categories": [
-          "traditional-media"
+          "traditional-media",
+          "popular"
         ],
         "example": "/caixin/weekly",
         "radar": [
@@ -51643,8 +51644,7 @@ export default {
       "/:section?/:type?/:user?": {
         "path": "/:section?/:type?/:user?",
         "categories": [
-          "programming",
-          "popular"
+          "programming"
         ],
         "view": 0,
         "example": "/hackernews/threads/comments_list/dang",
